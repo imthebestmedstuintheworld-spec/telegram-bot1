@@ -64,26 +64,6 @@ def save_referrals(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# -------- استارت --------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args  # اگر با لینک دعوت اومده
-    user_id = str(update.message.from_user.id)
-    referrals = load_referrals()
-
-    if args:
-        inviter_id = args[0]
-        if inviter_id != user_id:
-            referrals.setdefault(inviter_id, {"count": 0, "users": []})
-            if user_id not in referrals[inviter_id]["users"]:
-                referrals[inviter_id]["users"].append(user_id)
-                referrals[inviter_id]["count"] += 1
-                save_referrals(referrals)
-                await update.message.reply_text("✅ ورود شما با لینک دعوت ثبت شد.")
-
-    keyboard = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
-    await update.message.reply_text("سلام 👋 به منوی اصلی خوش اومدی:", reply_markup=keyboard)
-
-
 # -------- آزمون --------
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     questions = load_questions()
@@ -218,6 +198,43 @@ async def my_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔗 لینک شما: https://t.me/top1edu_bot?start={user_id}"
         )
 
+# -------- استارت --------
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    args = context.args  # اگر با لینک دعوت اومده
+    user_id = str(update.message.from_user.id)
+    referrals = load_referrals()
+
+    if args:
+        inviter_id = args[0]
+        if inviter_id != user_id:
+            referrals.setdefault(inviter_id, {
+                "count": 0,
+                "users": [],
+                "name": update.message.from_user.first_name   # 🔹 ذخیره اسم دعوت‌کننده
+            })
+            if user_id not in referrals[inviter_id]["users"]:
+                referrals[inviter_id]["users"].append(user_id)
+                referrals[inviter_id]["count"] += 1
+                save_referrals(referrals)
+                await update.message.reply_text("✅ ورود شما با لینک دعوت ثبت شد.")
+
+    keyboard = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
+    await update.message.reply_text("سلام 👋 به منوی اصلی خوش اومدی:", reply_markup=keyboard)
+# --- جدول رده‌بندی ---
+async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    referrals = load_referrals()
+
+    if not referrals:
+        return await update.message.reply_text("❌ هنوز هیچ دعوتی ثبت نشده.")
+
+    sorted_users = sorted(referrals.items(), key=lambda x: x[1]["count"], reverse=True)
+
+    msg = "🏆 جدول رده‌بندی دعوت‌ها:\n\n"
+    for i, (uid, data) in enumerate(sorted_users[:10], start=1):  # ۱۰ نفر اول
+        name = data.get("name", uid)
+        msg += f"{i}️⃣ {name} — {data['count']} نفر\n"
+
+    await update.message.reply_text(msg)
 
 # -------- اجرای ربات --------
 def main():
@@ -244,6 +261,7 @@ def main():
     app.add_handler(CommandHandler("results", results_cmd))
     app.add_handler(CommandHandler("myresult", my_result))
     app.add_handler(CommandHandler("myreferrals", my_referrals))
+    app.add_handler(CommandHandler("leaderboard", leaderboard))
 
     # حالت webhook (مناسب Render)
     port = int(os.environ.get("PORT", 8080))
@@ -256,3 +274,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
