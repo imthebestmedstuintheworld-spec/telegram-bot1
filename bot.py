@@ -7,71 +7,56 @@ from telegram.ext import (
     MessageHandler, filters, ConversationHandler
 )
 
-# -------- تنظیمات اصلی --------
-TOKEN = os.getenv("TOKEN")  # از Render می‌گیره
-ADMIN_ID = 6844005250       # آیدی عددی ادمین
+TOKEN = os.getenv("TOKEN")
+ADMIN_ID = 6844005250
 
-# تنظیمات آزمون (قابل تغییر با دستورات ادمین)
-QUIZ_TIME = 120      # زمان آزمون (ثانیه)
-QUIZ_LIMIT = None    # تعداد سؤالات (None = همه)
+QUIZ_TIME = 120
+QUIZ_LIMIT = None
 
-# منوی اصلی
 main_menu = [
     ["📚 آزمون‌ساز", "📂 فایل‌ها"],
     ["💳 خرید", "🛠 پشتیبانی"],
     ["⬅️ برگشت به منوی اصلی"]
 ]
 
-QUIZ, ADD_Q1, ADD_Q2, ADD_Q3, REMOVE_Q = range(5)
+QUIZ, CHOOSE_CATEGORY, ADD_CAT, ADD_Q1, ADD_Q2, ADD_Q3 = range(6)
 
 
-# -------- مدیریت فایل سؤال‌ها --------
+# ---------- فایل ----------
 def load_questions():
     try:
         with open("questions.json", "r", encoding="utf-8") as f:
             return json.load(f)
     except:
-        return []
+        return {}
 
-def save_questions(questions):
+def save_questions(data):
     with open("questions.json", "w", encoding="utf-8") as f:
-        json.dump(questions, f, ensure_ascii=False, indent=2)
-
-
-# -------- مدیریت نتایج --------
-def load_results():
-    try:
-        with open("results.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
-
-def save_results(results):
-    with open("results.json", "w", encoding="utf-8") as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
-
-
-# -------- مدیریت ریفرال --------
-def load_referrals():
-    try:
-        with open("referrals.json", "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
-        return {}
-
-def save_referrals(data):
-    with open("referrals.json", "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-# -------- آزمون --------
+# ---------- آزمون ----------
 async def start_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
     questions = load_questions()
     if not questions:
-        await update.message.reply_text("❌ هنوز هیچ سؤالی ثبت نشده!")
+        await update.message.reply_text("❌ هنوز هیچ دسته‌ای ثبت نشده!")
         return ConversationHandler.END
 
-    context.user_data["questions"] = questions[:QUIZ_LIMIT] if QUIZ_LIMIT else questions
+    categories = [[cat] for cat in questions.keys()]
+    keyboard = ReplyKeyboardMarkup(categories, resize_keyboard=True)
+    await update.message.reply_text("📂 یک دسته‌بندی انتخاب کن:", reply_markup=keyboard)
+    return CHOOSE_CATEGORY
+
+async def choose_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    category = update.message.text
+    questions = load_questions()
+
+    if category not in questions:
+        await update.message.reply_text("❌ دسته نامعتبر بود.")
+        return ConversationHandler.END
+
+    context.user_data["category"] = category
+    context.user_data["questions"] = questions[category][:QUIZ_LIMIT] if QUIZ_LIMIT else questions[category]
     context.user_data["score"] = 0
     context.user_data["q_index"] = 0
     context.user_data["quiz_active"] = True
@@ -102,15 +87,6 @@ async def ask_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
         score = context.user_data["score"]
         total = len(questions)
         await update.message.reply_text(f"🎉 آزمون تمام شد! نمره شما: {score}/{total}")
-
-        results = load_results()
-        user_id = str(update.message.from_user.id)
-        results[user_id] = {
-            "name": update.message.from_user.first_name,
-            "score": score,
-            "total": total
-        }
-        save_results(results)
         return ConversationHandler.END
 
 async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -132,16 +108,31 @@ async def handle_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return await ask_question(update, context)
 
 
-# -------- مدیریت سؤال‌ها (ادمین) --------
+# ---------- اضافه کردن سؤال ----------
 async def add_question(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         return await update.message.reply_text("⛔ فقط ادمین می‌تونه سؤال اضافه کنه!")
+
+    questions = load_questions()
+    categories = [[cat] for cat in questions.keys()] + [["➕ دسته جدید"]]
+    keyboard = ReplyKeyboardMarkup(categories, resize_keyboard=True)
+
+    await update.message.reply_text("📂 یک دسته انتخاب کن یا دسته جدید بساز:", reply_markup=keyboard)
+    return ADD_CAT
+
+async def add_category(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    category = update.message.text
+    if category == "➕ دسته جدید":
+        await update.message.reply_text("✍️ نام دسته جدید رو وارد کن:")
+        return ADD_CAT
+
+    context.user_data["category"] = category
     await update.message.reply_text("✍️ متن سؤال رو بنویس:")
     return ADD_Q1
 
 async def add_q1(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["new_q"] = {"question": update.message.text}
-    await update.message.reply_text("🔢 گزینه‌ها رو با کاما جدا کن (مثلاً: الف, ب, ج, د):")
+    await update.message.reply_text("🔢 گزینه‌ها رو با کاما جدا کن:")
     return ADD_Q2
 
 async def add_q2(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -151,119 +142,47 @@ async def add_q2(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ADD_Q3
 
 async def add_q3(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data["new_q"]["answer"] = update.message.text
+    category = context.user_data["category"]
+    q = context.user_data["new_q"]
+    q["answer"] = update.message.text
+
     questions = load_questions()
-    questions.append(context.user_data["new_q"])
+    if category not in questions:
+        questions[category] = []
+    questions[category].append(q)
     save_questions(questions)
-    await update.message.reply_text("🎉 سؤال با موفقیت ذخیره شد!")
+
+    await update.message.reply_text(f"🎉 سؤال به دسته {category} اضافه شد!")
     return ConversationHandler.END
 
 
-# -------- نتایج --------
-async def results_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.message.from_user.id != ADMIN_ID:
-        return await update.message.reply_text("⛔ فقط ادمین می‌تونه نتایج رو ببینه!")
-
-    results = load_results()
-    if not results:
-        return await update.message.reply_text("❌ هنوز هیچ نتیجه‌ای ثبت نشده!")
-
-    msg = "📊 نتایج آزمون:\n\n"
-    for uid, data in results.items():
-        msg += f"{data['name']} → {data['score']}/{data['total']}\n"
-    await update.message.reply_text(msg)
-
-async def my_result(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    results = load_results()
-    if user_id not in results:
-        await update.message.reply_text("❌ شما هنوز هیچ آزمونی نداده‌اید.")
-    else:
-        data = results[user_id]
-        await update.message.reply_text(f"📋 نتیجه آخرین آزمون شما:\n\n"
-                                        f"نام: {data['name']}\n"
-                                        f"نمره: {data['score']} / {data['total']}")
-
-
-# -------- ریفرال --------
-async def my_referrals(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.message.from_user.id)
-    referrals = load_referrals()
-    if user_id not in referrals:
-        await update.message.reply_text("❌ شما هنوز کسی رو دعوت نکردید.")
-    else:
-        count = referrals[user_id]["count"]
-        await update.message.reply_text(
-            f"📊 تعداد دعوتی‌های شما: {count}\n"
-            f"🔗 لینک شما: https://t.me/top1edu_bot?start={user_id}"
-        )
-
-# -------- استارت --------
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    args = context.args  # اگر با لینک دعوت اومده
-    user_id = str(update.message.from_user.id)
-    referrals = load_referrals()
-
-    if args:
-        inviter_id = args[0]
-        if inviter_id != user_id:
-            referrals.setdefault(inviter_id, {
-                "count": 0,
-                "users": [],
-                "name": update.message.from_user.first_name   # 🔹 ذخیره اسم دعوت‌کننده
-            })
-            if user_id not in referrals[inviter_id]["users"]:
-                referrals[inviter_id]["users"].append(user_id)
-                referrals[inviter_id]["count"] += 1
-                save_referrals(referrals)
-                await update.message.reply_text("✅ ورود شما با لینک دعوت ثبت شد.")
-
-    keyboard = ReplyKeyboardMarkup(main_menu, resize_keyboard=True)
-    await update.message.reply_text("سلام 👋 به منوی اصلی خوش اومدی:", reply_markup=keyboard)
-# --- جدول رده‌بندی ---
-async def leaderboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    referrals = load_referrals()
-
-    if not referrals:
-        return await update.message.reply_text("❌ هنوز هیچ دعوتی ثبت نشده.")
-
-    sorted_users = sorted(referrals.items(), key=lambda x: x[1]["count"], reverse=True)
-
-    msg = "🏆 جدول رده‌بندی دعوت‌ها:\n\n"
-    for i, (uid, data) in enumerate(sorted_users[:10], start=1):  # ۱۰ نفر اول
-        name = data.get("name", uid)
-        msg += f"{i}️⃣ {name} — {data['count']} نفر\n"
-
-    await update.message.reply_text(msg)
-
-# -------- اجرای ربات --------
+# ---------- اجرای ربات ----------
 def main():
     app = Application.builder().token(TOKEN).build()
 
     conv_quiz = ConversationHandler(
         entry_points=[MessageHandler(filters.Regex("^📚 آزمون‌ساز$"), start_quiz)],
-        states={QUIZ: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer)]},
-        fallbacks=[CommandHandler("start", start)],
+        states={
+            CHOOSE_CATEGORY: [MessageHandler(filters.TEXT & ~filters.COMMAND, choose_category)],
+            QUIZ: [MessageHandler(filters.TEXT & ~filters.COMMAND, handle_answer)]
+        },
+        fallbacks=[CommandHandler("start", start_quiz)],
     )
+
     conv_add = ConversationHandler(
         entry_points=[CommandHandler("addq", add_question)],
         states={
+            ADD_CAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_category)],
             ADD_Q1: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_q1)],
             ADD_Q2: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_q2)],
             ADD_Q3: [MessageHandler(filters.TEXT & ~filters.COMMAND, add_q3)],
         },
-        fallbacks=[CommandHandler("start", start)],
+        fallbacks=[CommandHandler("start", start_quiz)],
     )
 
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(conv_quiz)
     app.add_handler(conv_add)
-    app.add_handler(CommandHandler("results", results_cmd))
-    app.add_handler(CommandHandler("myresult", my_result))
-    app.add_handler(CommandHandler("myreferrals", my_referrals))
-    app.add_handler(CommandHandler("leaderboard", leaderboard))
 
-    # حالت webhook (مناسب Render)
     port = int(os.environ.get("PORT", 8080))
     app.run_webhook(
         listen="0.0.0.0",
@@ -274,4 +193,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
